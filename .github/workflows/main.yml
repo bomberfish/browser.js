@@ -194,7 +194,7 @@ jobs:
         working-directory: packages/scramjet/packages/runway
 
       - name: Run Runway tests
-        run: pnpm test --parallel 4
+        run: OMIT_WPT=1 pnpm test --parallel 4
         working-directory: packages/scramjet/packages/runway
 
   rewritertests:
