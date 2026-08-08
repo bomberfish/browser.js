@@ -440,7 +440,7 @@ export function createFetchHandler(controller: Controller) {
 			if (!framewindowproxy)
 				throw new Error("No frame window proxy for blob fetch");
 			// find the context for this proxy
-			const context = contexts.find(
+			const context = contexts.contexts.find(
 				(ctx) => ctx.windowproxy === framewindowproxy
 			);
 			if (!context) throw new Error("No context found for blob fetch");
@@ -462,7 +462,7 @@ export function createFetchHandler(controller: Controller) {
 				cookie,
 			}));
 			const promises: Promise<any>[] = [];
-			for (const context of contexts) {
+			for (const context of contexts.contexts) {
 				if (context.alive()) {
 					promises.push(
 						context.rpc.call("setCookies", {
