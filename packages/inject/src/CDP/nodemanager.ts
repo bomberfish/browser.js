@@ -5,7 +5,7 @@ type RemoteNode = Protocol.DOM.Node;
 
 export class NodeManager {
 	nodes = new SkiBidiMap<NodeId, Node>();
-	counter = 0;
+	counter = 1;
 
 	private createId(): NodeId {
 		return this.counter++;
@@ -23,14 +23,62 @@ export class NodeManager {
 		return this.nodes.get(id);
 	}
 
+	serializeTree(node: Node, depth: number, pierce: boolean): RemoteNode {
+		const remoteNode = this.wrap(node);
+		if (node.nodeType === Node.DOCUMENT_NODE) {
+			remoteNode.documentURL = (node as Document).URL;
+			remoteNode.baseURL = (node as Document).baseURI;
+		}
+
+		if (node.nodeType === Node.ELEMENT_NODE) {
+			const element = node as Element;
+			remoteNode.attributes = [];
+			for (const attr of element.attributes) {
+				remoteNode.attributes.push(attr.name, attr.value);
+			}
+		}
+
+		if (pierce && node instanceof HTMLElement && node.shadowRoot) {
+			remoteNode.shadowRoots = [
+				this.serializeTree(node.shadowRoot, depth - 1, pierce),
+			];
+		}
+
+		if (pierce && node instanceof HTMLIFrameElement && node.contentDocument) {
+			remoteNode.contentDocument = this.serializeTree(
+				node.contentDocument,
+				depth,
+				pierce
+			);
+		}
+
+		const actualDepth = depth === -1 ? Infinity : depth;
+		if (actualDepth > 0) {
+			remoteNode.children = [];
+			for (const child of node.childNodes) {
+				const childRemoteNode = this.serializeTree(
+					child,
+					actualDepth - 1,
+					pierce
+				);
+				childRemoteNode.parentId = remoteNode.nodeId;
+				remoteNode.children.push(childRemoteNode);
+			}
+		}
+
+		return remoteNode;
+	}
+
 	wrap(node: Node): RemoteNode {
 		const id = this.getOrCreateId(node);
 		return {
 			nodeId: id,
-			nodeName: node.nodeName,
+			backendNodeId: id,
 			nodeType: node.nodeType,
-			localName: node.localName,
+			nodeName: node.nodeName,
+			nodeValue: node.nodeValue ?? "",
 			childNodeCount: node.childNodes.length,
+			localName: node.localName,
 		};
 	}
 }

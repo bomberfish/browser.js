@@ -5,6 +5,7 @@ import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 import { ScramjetClient } from "@mercuryworkshop/scramjet/bundled";
 import { ObjectManager } from "./objectmanager";
 import { ExecutionContextWrapper } from "../context";
+import { NodeManager } from "./nodemanager";
 // it's safe to alias box like this, there's only one ever
 export let box: InstanceType<typeof ScramjetClient>["box"] = null!;
 
@@ -14,7 +15,9 @@ export function setupCDPServer({ self, rpc, client }: ExecutionContextWrapper) {
 
 export class CDPSession {
 	runtimeEnabled = false;
+	domEnabled = false;
 	objects = new ObjectManager(this);
+	nodes = new NodeManager();
 	constructor(public context: ExecutionContextWrapper) {}
 	async request(method: string, params: any): Promise<any> {
 		if (method in cdpBindings) {
@@ -48,6 +51,7 @@ export function bindCDP<T extends CdpCommand>(
 	method: T,
 	binding: CdpBinding<T>
 ): void {
+	console.log(`binding ${method} to ${binding}`);
 	(cdpBindings as Record<CdpCommand, unknown>)[method] = binding;
 }
 
