@@ -19,7 +19,7 @@ export class NodeManager {
 			return id;
 		}
 	}
-	private get(id: NodeId): Node | undefined {
+	public get(id: NodeId): Node | undefined {
 		return this.nodes.get(id);
 	}
 
@@ -56,6 +56,13 @@ export class NodeManager {
 		if (actualDepth > 0) {
 			remoteNode.children = [];
 			for (const child of node.childNodes) {
+				if (
+					child.nodeType === Node.TEXT_NODE &&
+					child.nodeValue?.trim() === ""
+				) {
+					continue;
+				}
+
 				const childRemoteNode = this.serializeTree(
 					child,
 					actualDepth - 1,
@@ -80,5 +87,13 @@ export class NodeManager {
 			childNodeCount: node.childNodes.length,
 			localName: node.localName,
 		};
+	}
+
+	resolveElement(nodeId: NodeId): Element {
+		const node = this.get(nodeId);
+		if (!node || !(node instanceof Element)) {
+			throw new Error("Node is not an element");
+		}
+		return node;
 	}
 }

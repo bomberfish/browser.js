@@ -51,7 +51,6 @@ export function bindCDP<T extends CdpCommand>(
 	method: T,
 	binding: CdpBinding<T>
 ): void {
-	console.log(`binding ${method} to ${binding}`);
 	(cdpBindings as Record<CdpCommand, unknown>)[method] = binding;
 }
 
