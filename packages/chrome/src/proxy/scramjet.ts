@@ -219,7 +219,11 @@ export class ProxyFrameContext {
 						void ctx.rpc.call("setCookies", { cookies });
 					}
 				},
-				cdpevent: async ({}) => {},
+				cdpevent: async ({ method, params }) => {
+					if (!tab) return;
+					console.warn("CDP EVENT", method, params);
+					tab.session.cdpConnection?.triggerEvent(method as any, params);
+				},
 				wsconnect: async ({ url, protocols, requestHeaders, port }) => {
 					let resolve!: (arg: Chromebound["wsconnect"][1]) => void;
 					const promise = new Promise<Chromebound["wsconnect"][1]>(

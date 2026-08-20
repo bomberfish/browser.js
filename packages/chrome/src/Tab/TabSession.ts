@@ -11,6 +11,7 @@ export class TabSession {
 	controller: Controller | null = null;
 	contexts: ProxyFrameContext[] = [];
 	rootcontext: ProxyFrameContext | null = null;
+	cdpConnection: CDPConnection | null = null;
 	constructor(
 		public tab: Tab,
 		public id: string
@@ -19,7 +20,7 @@ export class TabSession {
 		this.devtoolsFrame = document.createElement("iframe");
 		tab.waitForInit.then(() => {
 			this.devtoolsFrame.onload = async () => {
-				const session = new CDPConnection((msh) => {
+				this.cdpConnection = new CDPConnection((msh) => {
 					this.devtoolsFrame.contentWindow.InspectorFrontendAPI.dispatchMessage(
 						msh
 					);
@@ -27,7 +28,7 @@ export class TabSession {
 				this.devtoolsFrame.contentWindow.InspectorFrontendHost.sendMessageToBackend =
 					(message) => {
 						console.warn(message);
-						session.sendMessage(message);
+						this.cdpConnection!.sendMessage(message);
 					};
 			};
 

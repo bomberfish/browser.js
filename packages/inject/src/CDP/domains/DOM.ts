@@ -2,13 +2,65 @@ import Protocol from "devtools-protocol";
 import { bindCDP, CDPSession } from "..";
 import { NodeManager } from "../nodemanager";
 
+let observer: MutationObserver | undefined = undefined;
+
 // MARK: enable/disable
 bindCDP("DOM.disable", async function () {
 	this.domEnabled = false;
+	observer?.disconnect();
 });
 
 bindCDP("DOM.enable", async function () {
 	console.log("DOM enabled!");
+	const callback = (mutations: MutationRecord[]) => {
+		for (const mutation of mutations) {
+			if (mutation.type == "attributes") {
+				const name = mutation.attributeName!;
+				const target = mutation.target as Element;
+				if (target.hasAttribute(name)) {
+					this.emit("DOM.attributeModified", {
+						nodeId: this.nodes.wrap(target).nodeId,
+						name,
+						value: target.getAttribute(name)!,
+					});
+				} else {
+					this.emit("DOM.attributeRemoved", {
+						nodeId: this.nodes.wrap(target).nodeId,
+						name,
+					});
+				}
+			} else if (mutation.type == "childList") {
+				for (const added of mutation.addedNodes) {
+					this.emit("DOM.childNodeInserted", {
+						parentNodeId: this.nodes.wrap(mutation.target).nodeId,
+						previousNodeId: added.previousSibling
+							? this.nodes.wrap(added.previousSibling).nodeId
+							: 0,
+						node: this.nodes.serializeTree(added, -1, false),
+					});
+				}
+				for (const removed of mutation.removedNodes) {
+					this.emit("DOM.childNodeRemoved", {
+						parentNodeId: this.nodes.wrap(mutation.target).nodeId,
+						nodeId: this.nodes.wrap(removed).nodeId,
+					});
+				}
+			} else if (mutation.type == "characterData") {
+				this.emit("DOM.characterDataModified", {
+					nodeId: this.nodes.wrap(mutation.target).nodeId,
+					characterData: mutation.target.nodeValue ?? "",
+				});
+			}
+		}
+	};
+	observer = new MutationObserver(callback);
+	observer.observe(document, {
+		attributes: true,
+		childList: true,
+		characterData: true,
+		subtree: true,
+	});
+
 	this.domEnabled = true;
 });
 
@@ -32,9 +84,14 @@ bindCDP("DOM.requestChildNodes", async function (params) {
 	if (node instanceof Element && node.shadowRoot) {
 		this.nodes.serializeTree(node.shadowRoot, depth ?? -1, pierce ?? false);
 	}
+	const nodes: Protocol.DOM.Node[] = [];
 	for (const child of node.childNodes) {
-		this.nodes.serializeTree(child, depth ?? -1, pierce ?? false);
+		nodes.push(this.nodes.serializeTree(child, depth ?? -1, pierce ?? false));
 	}
+	this.emit("DOM.setChildNodes", {
+		parentId: nodeId,
+		nodes,
+	});
 	return {};
 });
 

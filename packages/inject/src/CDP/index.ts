@@ -16,6 +16,7 @@ export function setupCDPServer({ self, rpc, client }: ExecutionContextWrapper) {
 export class CDPSession {
 	runtimeEnabled = false;
 	domEnabled = false;
+	cssEnabled = false;
 	objects = new ObjectManager(this);
 	nodes = new NodeManager();
 	constructor(public context: ExecutionContextWrapper) {}
@@ -27,6 +28,10 @@ export class CDPSession {
 			console.warn(`ignoring ${method}`);
 		}
 	}
+
+	emit<T extends CdpEvent>(method: T, params: CdpEventArgs<T>) {
+		void this.context.rpc.call("cdpevent", { method, params });
+	}
 }
 
 export type CdpCommand = keyof ProtocolMapping.Commands;
@@ -36,6 +41,12 @@ export type CdpCommandArgs<T extends CdpCommand> =
 		: ProtocolMapping.Commands[T]["paramsType"][number];
 export type CdpCommandReturn<T extends CdpCommand> =
 	ProtocolMapping.Commands[T]["returnType"];
+
+export type CdpEvent = keyof ProtocolMapping.Events;
+export type CdpEventArgs<T extends CdpEvent> =
+	ProtocolMapping.Events[T] extends []
+		? undefined
+		: ProtocolMapping.Events[T][number];
 
 type MaybePromise<T> = T | Promise<T>;
 type CdpBinding<T extends CdpCommand> = (

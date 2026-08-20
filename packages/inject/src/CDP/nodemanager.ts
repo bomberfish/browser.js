@@ -96,4 +96,12 @@ export class NodeManager {
 		}
 		return node;
 	}
+
+	resolveNode(nodeId: NodeId): Node {
+		const node = this.get(nodeId);
+		if (!node) {
+			throw new Error("Node not found");
+		}
+		return node;
+	}
 }
