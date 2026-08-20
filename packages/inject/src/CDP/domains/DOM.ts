@@ -38,6 +38,29 @@ bindCDP("DOM.enable", async function () {
 							: 0,
 						node: this.nodes.serializeTree(added, -1, false),
 					});
+
+					// emit CSS.styleSheetAdded if a new stylesheet is added
+					// was gonna make a separate observer but like.......
+					if (added instanceof Element) {
+						let tag = added.tagName.toLowerCase();
+						if (tag === "link" && added.getAttribute("rel") === "stylesheet") {
+							const sheet = (added as HTMLLinkElement).sheet;
+							if (sheet) {
+								this.styles.getOrCreateId(sheet);
+								this.emit("CSS.styleSheetAdded", {
+									header: this.styles.serializeStyleSheet(sheet),
+								});
+							}
+						} else if (tag === "style") {
+							const sheet = (added as HTMLStyleElement).sheet;
+							if (sheet) {
+								this.styles.getOrCreateId(sheet);
+								this.emit("CSS.styleSheetAdded", {
+									header: this.styles.serializeStyleSheet(sheet),
+								});
+							}
+						}
+					}
 				}
 				for (const removed of mutation.removedNodes) {
 					this.emit("DOM.childNodeRemoved", {
@@ -149,11 +172,10 @@ bindCDP("DOM.getBoxModel", async function (params) {
 			node = obj;
 		}
 	}
-	if (!node) {
-		throw new Error("Node not found");
-	}
-	if (!(node instanceof Element)) {
-		throw new Error("Node is not an element");
+	if (!node || !(node instanceof Element)) {
+		return {
+			model: {},
+		};
 	}
 	const rect = node.getBoundingClientRect();
 	const style = window.getComputedStyle(node);

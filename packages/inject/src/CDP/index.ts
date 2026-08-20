@@ -3,9 +3,11 @@ import { Protocol } from "devtools-protocol";
 import type { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 
 import { ScramjetClient } from "@mercuryworkshop/scramjet/bundled";
-import { ObjectManager } from "./objectmanager";
 import { ExecutionContextWrapper } from "../context";
+// we are the managerlings please feed us
+import { ObjectManager } from "./objectmanager";
 import { NodeManager } from "./nodemanager";
+import { StyleManager } from "./stylemanager";
 // it's safe to alias box like this, there's only one ever
 export let box: InstanceType<typeof ScramjetClient>["box"] = null!;
 
@@ -19,6 +21,7 @@ export class CDPSession {
 	cssEnabled = false;
 	objects = new ObjectManager(this);
 	nodes = new NodeManager();
+	styles = new StyleManager(this);
 	constructor(public context: ExecutionContextWrapper) {}
 	async request(method: string, params: any): Promise<any> {
 		if (method in cdpBindings) {
