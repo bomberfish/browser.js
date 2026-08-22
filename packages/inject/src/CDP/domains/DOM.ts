@@ -41,23 +41,28 @@ bindCDP("DOM.enable", async function () {
 
 					// emit CSS.styleSheetAdded if a new stylesheet is added
 					// was gonna make a separate observer but like.......
-					if (added instanceof Element) {
-						let tag = added.tagName.toLowerCase();
-						if (tag === "link" && added.getAttribute("rel") === "stylesheet") {
-							const sheet = (added as HTMLLinkElement).sheet;
-							if (sheet) {
-								this.styles.getOrCreateId(sheet);
-								this.emit("CSS.styleSheetAdded", {
-									header: this.styles.serializeStyleSheet(sheet),
-								});
-							}
-						} else if (tag === "style") {
-							const sheet = (added as HTMLStyleElement).sheet;
-							if (sheet) {
-								this.styles.getOrCreateId(sheet);
-								this.emit("CSS.styleSheetAdded", {
-									header: this.styles.serializeStyleSheet(sheet),
-								});
+					if (this.cssEnabled) {
+						if (added instanceof Element) {
+							let tag = added.tagName.toLowerCase();
+							if (
+								tag === "link" &&
+								added.getAttribute("rel") === "stylesheet"
+							) {
+								const sheet = (added as HTMLLinkElement).sheet;
+								if (sheet) {
+									this.styles.getOrCreateId(sheet);
+									this.emit("CSS.styleSheetAdded", {
+										header: this.styles.serializeStyleSheet(sheet),
+									});
+								}
+							} else if (tag === "style") {
+								const sheet = (added as HTMLStyleElement).sheet;
+								if (sheet) {
+									this.styles.getOrCreateId(sheet);
+									this.emit("CSS.styleSheetAdded", {
+										header: this.styles.serializeStyleSheet(sheet),
+									});
+								}
 							}
 						}
 					}
@@ -123,7 +128,7 @@ bindCDP("DOM.requestNode", async function (params) {
 	const obj = this.objects.get(objectId);
 	if (obj instanceof Node) {
 		return {
-			nodeId: this.nodes.wrap(obj),
+			nodeId: this.nodes.wrap(obj).nodeId,
 		};
 	}
 	throw new Error("Object is not a node");
@@ -134,7 +139,7 @@ bindCDP("DOM.getNodeForLocation", async function (params) {
 	const { x, y, includeUserAgentShadowDOM } = params;
 	const element = document.elementFromPoint(x, y);
 	if (element) {
-		const nodeId = this.nodes.wrap(element);
+		const nodeId = this.nodes.wrap(element).nodeId;
 		return {
 			nodeId: nodeId,
 			backendNodeId: nodeId,
@@ -287,7 +292,7 @@ bindCDP("DOM.querySelector", async function (params) {
 	const found = node.querySelector(selector);
 	if (found) {
 		return {
-			nodeId: this.nodes.wrap(found),
+			nodeId: this.nodes.wrap(found).nodeId,
 		};
 	}
 	return {

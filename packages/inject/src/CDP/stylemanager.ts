@@ -26,6 +26,10 @@ export class StyleManager {
 		return this.styleMap.getKey(style) !== undefined;
 	}
 
+	public get(id: string): CSSStyleSheet | undefined {
+		return this.styleMap.get(id);
+	}
+
 	public serializeStyleSheet(
 		style: CSSStyleSheet
 	): Protocol.CSS.CSSStyleSheetHeader {
@@ -36,7 +40,7 @@ export class StyleManager {
 			styleSheetId: this.getOrCreateId(style),
 			frameId: "", // todo!
 			sourceURL: url,
-			origin: "regular", // bigger todo?
+			origin: "regular", // bigger todo?ç
 			title: style.title || "",
 			ownerNode: style.ownerNode
 				? this.session.nodes.wrap(style.ownerNode).backendNodeId
