@@ -10,7 +10,7 @@ export class NodeManager {
 	private createId(): NodeId {
 		return this.counter++;
 	}
-	private getOrCreateId(node: Node): NodeId {
+	public getOrCreateId(node: Node): NodeId {
 		if (this.nodes.getKey(node)) {
 			return this.nodes.getKey(node)!;
 		} else {

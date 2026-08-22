@@ -4,6 +4,8 @@ import { box, CDPSession } from ".";
 
 export class StyleManager {
 	private styleMap: SkiBidiMap<string, CSSStyleSheet> = new SkiBidiMap();
+	private textMap: SkiBidiMap<string, string> = new SkiBidiMap();
+
 	private counter = 1;
 
 	constructor(public session: CDPSession) {}
@@ -30,6 +32,41 @@ export class StyleManager {
 		return this.styleMap.get(id);
 	}
 
+	public setText(id: string, text: string): void {
+		this.textMap.set(id, text);
+	}
+
+	public getText(id: string): string {
+		const text = this.textMap.get(id);
+		if (text !== undefined) {
+			return text;
+		}
+
+		const style = this.get(id);
+		if (style?.ownerNode instanceof HTMLStyleElement) {
+			this.textMap.set(id, style.ownerNode.textContent || "");
+			return style.ownerNode.textContent || "";
+		}
+
+		if (style) {
+			const rules = Array.from(style.cssRules)
+				.map((rule) => rule.cssText)
+				.join("\n");
+			this.textMap.set(id, rules);
+			return rules;
+		}
+
+		return "";
+	}
+
+	public register(style: CSSStyleSheet): string {
+		const id = this.getOrCreateId(style);
+		this.session.emit("CSS.styleSheetAdded", {
+			header: this.serializeStyleSheet(style),
+		});
+		return id;
+	}
+
 	public serializeStyleSheet(
 		style: CSSStyleSheet
 	): Protocol.CSS.CSSStyleSheetHeader {
@@ -40,7 +77,7 @@ export class StyleManager {
 			styleSheetId: this.getOrCreateId(style),
 			frameId: "", // todo!
 			sourceURL: url,
-			origin: "regular", // bigger todo?ç
+			origin: "regular", // bigger todo?
 			title: style.title || "",
 			ownerNode: style.ownerNode
 				? this.session.nodes.wrap(style.ownerNode).backendNodeId

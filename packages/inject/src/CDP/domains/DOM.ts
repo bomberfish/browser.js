@@ -19,63 +19,44 @@ bindCDP("DOM.enable", async function () {
 				const target = mutation.target as Element;
 				if (target.hasAttribute(name)) {
 					this.emit("DOM.attributeModified", {
-						nodeId: this.nodes.wrap(target).nodeId,
+						nodeId: this.nodes.getOrCreateId(target),
 						name,
 						value: target.getAttribute(name)!,
 					});
 				} else {
 					this.emit("DOM.attributeRemoved", {
-						nodeId: this.nodes.wrap(target).nodeId,
+						nodeId: this.nodes.getOrCreateId(target),
 						name,
 					});
 				}
 			} else if (mutation.type == "childList") {
 				for (const added of mutation.addedNodes) {
 					this.emit("DOM.childNodeInserted", {
-						parentNodeId: this.nodes.wrap(mutation.target).nodeId,
+						parentNodeId: this.nodes.getOrCreateId(mutation.target),
 						previousNodeId: added.previousSibling
-							? this.nodes.wrap(added.previousSibling).nodeId
+							? this.nodes.getOrCreateId(added.previousSibling)
 							: 0,
 						node: this.nodes.serializeTree(added, -1, false),
 					});
 
 					// emit CSS.styleSheetAdded if a new stylesheet is added
 					// was gonna make a separate observer but like.......
-					if (this.cssEnabled) {
-						if (added instanceof Element) {
-							let tag = added.tagName.toLowerCase();
-							if (
-								tag === "link" &&
-								added.getAttribute("rel") === "stylesheet"
-							) {
-								const sheet = (added as HTMLLinkElement).sheet;
-								if (sheet) {
-									this.styles.getOrCreateId(sheet);
-									this.emit("CSS.styleSheetAdded", {
-										header: this.styles.serializeStyleSheet(sheet),
-									});
-								}
-							} else if (tag === "style") {
-								const sheet = (added as HTMLStyleElement).sheet;
-								if (sheet) {
-									this.styles.getOrCreateId(sheet);
-									this.emit("CSS.styleSheetAdded", {
-										header: this.styles.serializeStyleSheet(sheet),
-									});
-								}
-							}
+					if (this.cssEnabled && "sheet" in added) {
+						const sheet = (added as HTMLStyleElement | HTMLLinkElement).sheet;
+						if (sheet) {
+							this.styles.register(sheet);
 						}
 					}
 				}
 				for (const removed of mutation.removedNodes) {
 					this.emit("DOM.childNodeRemoved", {
-						parentNodeId: this.nodes.wrap(mutation.target).nodeId,
-						nodeId: this.nodes.wrap(removed).nodeId,
+						parentNodeId: this.nodes.getOrCreateId(mutation.target),
+						nodeId: this.nodes.getOrCreateId(removed),
 					});
 				}
 			} else if (mutation.type == "characterData") {
 				this.emit("DOM.characterDataModified", {
-					nodeId: this.nodes.wrap(mutation.target).nodeId,
+					nodeId: this.nodes.getOrCreateId(mutation.target),
 					characterData: mutation.target.nodeValue ?? "",
 				});
 			}
@@ -128,7 +109,7 @@ bindCDP("DOM.requestNode", async function (params) {
 	const obj = this.objects.get(objectId);
 	if (obj instanceof Node) {
 		return {
-			nodeId: this.nodes.wrap(obj).nodeId,
+			nodeId: this.nodes.getOrCreateId(obj),
 		};
 	}
 	throw new Error("Object is not a node");
@@ -139,7 +120,7 @@ bindCDP("DOM.getNodeForLocation", async function (params) {
 	const { x, y, includeUserAgentShadowDOM } = params;
 	const element = document.elementFromPoint(x, y);
 	if (element) {
-		const nodeId = this.nodes.wrap(element).nodeId;
+		const nodeId = this.nodes.getOrCreateId(element);
 		return {
 			nodeId: nodeId,
 			backendNodeId: nodeId,
@@ -184,69 +165,45 @@ bindCDP("DOM.getBoxModel", async function (params) {
 	}
 	const rect = node.getBoundingClientRect();
 	const style = window.getComputedStyle(node);
-	const parsePx = (val: string | null): number => {
-		if (!val) return 0;
-		const parsed = parseFloat(val);
-		return isNaN(parsed) ? 0 : parsed;
-	};
 
-	const borderTop = parsePx(style.borderTopWidth);
-	const borderRight = parsePx(style.borderRightWidth);
-	const borderBottom = parsePx(style.borderBottomWidth);
-	const borderLeft = parsePx(style.borderLeftWidth);
-
-	const paddingTop = parsePx(style.paddingTop);
-	const paddingRight = parsePx(style.paddingRight);
-	const paddingBottom = parsePx(style.paddingBottom);
-	const paddingLeft = parsePx(style.paddingLeft);
-
-	const marginTop = parsePx(style.marginTop);
-	const marginRight = parsePx(style.marginRight);
-	const marginBottom = parsePx(style.marginBottom);
-	const marginLeft = parsePx(style.marginLeft);
+	const px = (v: string) => parseFloat(v) || 0;
+	const sides = (fmt: (s: string) => string) =>
+		["Top", "Right", "Bottom", "Left"].map((s) => px((style as any)[fmt(s)]));
+	const [bt, br, bb, bl] = sides((s) => `border${s}Width`);
+	const [pt, pr, pb, pl] = sides((s) => `padding${s}`);
+	const [mt, mr, mb, ml] = sides((s) => `margin${s}`);
+	const quad = (l: number, t: number, r: number, b: number) => [
+		l,
+		t,
+		r,
+		t,
+		r,
+		b,
+		l,
+		b,
+	];
 
 	return {
 		model: {
-			content: [
-				rect.left + borderLeft + paddingLeft,
-				rect.top + borderTop + paddingTop,
-				rect.right - borderRight - paddingRight,
-				rect.top + borderTop + paddingTop,
-				rect.right - borderRight - paddingRight,
-				rect.bottom - borderBottom - paddingBottom,
-				rect.left + borderLeft + paddingLeft,
-				rect.bottom - borderBottom - paddingBottom,
-			],
-			padding: [
-				rect.left + borderLeft,
-				rect.top + borderTop,
-				rect.right - borderRight,
-				rect.top + borderTop,
-				rect.right - borderRight,
-				rect.bottom - borderBottom,
-				rect.left + borderLeft,
-				rect.bottom - borderBottom,
-			],
-			border: [
-				rect.left,
-				rect.top,
-				rect.right,
-				rect.top,
-				rect.right,
-				rect.bottom,
-				rect.left,
-				rect.bottom,
-			],
-			margin: [
-				rect.left - marginLeft,
-				rect.top - marginTop,
-				rect.right + marginRight,
-				rect.top - marginTop,
-				rect.right + marginRight,
-				rect.bottom + marginBottom,
-				rect.left - marginLeft,
-				rect.bottom + marginBottom,
-			],
+			content: quad(
+				rect.left + bl + pl,
+				rect.top + bt + pt,
+				rect.right - br - pr,
+				rect.bottom - bb - pb
+			),
+			padding: quad(
+				rect.left + bl,
+				rect.top + bt,
+				rect.right - br,
+				rect.bottom - bb
+			),
+			border: quad(rect.left, rect.top, rect.right, rect.bottom),
+			margin: quad(
+				rect.left - ml,
+				rect.top - mt,
+				rect.right + mr,
+				rect.bottom + mb
+			),
 			width: rect.width,
 			height: rect.height,
 		},
@@ -292,7 +249,7 @@ bindCDP("DOM.querySelector", async function (params) {
 	const found = node.querySelector(selector);
 	if (found) {
 		return {
-			nodeId: this.nodes.wrap(found).nodeId,
+			nodeId: this.nodes.getOrCreateId(found),
 		};
 	}
 	return {
@@ -356,7 +313,7 @@ bindCDP("DOM.setNodeName", async function (params) {
 	}
 	old.replaceWith(newEl);
 	return {
-		nodeId: this.nodes.wrap(newEl),
+		nodeId: this.nodes.getOrCreateId(newEl),
 	};
 });
 

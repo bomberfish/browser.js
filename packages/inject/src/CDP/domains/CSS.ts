@@ -2,6 +2,102 @@ import Protocol from "devtools-protocol";
 import { bindCDP, CDPSession } from "..";
 import { StyleManager } from "./stylemanager";
 
+function serializeStyle(
+	style: CSSStyleDeclaration,
+	styleSheetId?: string
+): Protocol.CSS.CSSStyle {
+	return {
+		...parseStyleDeclarations(style.cssText),
+		styleSheetId,
+	};
+}
+
+export function parseStyleDeclarations(
+	blockText: string,
+	baseLineOffset = 0,
+	baseColOffset = 0
+): Protocol.CSS.CSSStyle {
+	const declarations = blockText
+		.split(";")
+		.map((s) => s.trim())
+		.filter(Boolean)
+		.map((s) => s + ";");
+
+	const cssProperties: Protocol.CSS.CSSProperty[] = [];
+
+	declarations.forEach((lineText, idx) => {
+		const colonIdx = lineText.indexOf(":");
+		if (colonIdx === -1) return;
+
+		const currentLine = baseLineOffset + idx;
+		const startCol = idx === 0 ? baseColOffset : 0;
+
+		const name = lineText.slice(0, colonIdx).trim();
+		let value = lineText
+			.slice(colonIdx + 1)
+			.replace(/;$/, "")
+			.trim();
+
+		const important = value.includes("!important");
+		if (important) {
+			value = value.replace(/!important$/, "").trim();
+		}
+
+		cssProperties.push({
+			name,
+			value,
+			important,
+			text: lineText,
+			range: {
+				startLine: currentLine,
+				startColumn: startCol,
+				endLine: currentLine,
+				endColumn: startCol + lineText.length,
+			},
+		});
+	});
+
+	const formattedCssText = cssProperties.map((p) => p.text).join("\n");
+	const lastLineIdx = Math.max(0, cssProperties.length - 1);
+	const lastLineLen = cssProperties[lastLineIdx]?.text?.length || 0;
+
+	return {
+		cssText: formattedCssText,
+		cssProperties,
+		shorthandEntries: [],
+		range: {
+			startLine: baseLineOffset,
+			startColumn: baseColOffset,
+			endLine: baseLineOffset + lastLineIdx,
+			endColumn:
+				baseLineOffset === baseLineOffset + lastLineIdx
+					? baseColOffset + lastLineLen
+					: lastLineLen,
+		},
+	};
+}
+
+function spliceRange(
+	src: string | undefined,
+	range: Protocol.CSS.SourceRange,
+	replacement: string
+): string {
+	const text = src || "";
+	const lines = text.split("\n");
+	let start = 0;
+	for (let i = 0; i < range.startLine; i++) {
+		start += lines[i].length + 1; // +1 for newline
+	}
+	start += range.startColumn;
+	let end = 0;
+	for (let i = 0; i < range.endLine; i++) {
+		end += lines[i].length + 1; // +1 for newline
+	}
+	end += range.endColumn;
+
+	return text.slice(0, start) + replacement + text.slice(end);
+}
+
 function serializeComputedStyle(
 	props: CSSStyleDeclaration
 ): Protocol.CSS.CSSComputedStyleProperty[] {
@@ -11,25 +107,10 @@ function serializeComputedStyle(
 	}));
 }
 
-function serializeInlineStyle(element: HTMLElement): Protocol.CSS.CSSStyle {
-	return {
-		cssText: element.getAttribute("style") || "",
-		cssProperties: Array.from(element.style).map((name) => ({
-			name: name,
-			value: element.style.getPropertyValue(name),
-			important: element.style.getPropertyPriority(name) === "important",
-		})),
-		shorthandEntries: [],
-	};
-}
-
 bindCDP("CSS.enable", async function () {
 	for (const styleSheet of document.styleSheets) {
 		if (styleSheet instanceof CSSStyleSheet) {
-			this.styles.getOrCreateId(styleSheet);
-			this.emit("CSS.styleSheetAdded", {
-				header: this.styles.serializeStyleSheet(styleSheet),
-			});
+			this.styles.register(styleSheet);
 		}
 	}
 	this.cssEnabled = true;
@@ -58,7 +139,7 @@ bindCDP("CSS.getInlineStylesForNode", async function (params) {
 	const node = this.nodes.resolveElement(nodeId);
 	if (node instanceof HTMLElement) {
 		return {
-			inlineStyle: serializeInlineStyle(node),
+			inlineStyle: serializeStyle(node.style, `inline-${nodeId}`),
 			attributesStyle: null,
 		};
 	} else {
@@ -89,11 +170,8 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 									rule.parentStyleSheet || styleSheet
 								);
 							} else {
-								id = this.styles.getOrCreateId(styleSheet);
 								// register the stylesheet if we haven't seen it before
-								this.emit("CSS.styleSheetAdded", {
-									header: this.styles.serializeStyleSheet(styleSheet),
-								});
+								id = this.styles.register(styleSheet);
 							}
 							matchedCSSRules.push({
 								rule: {
@@ -103,16 +181,7 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 										})),
 										text: rule.selectorText,
 									},
-									style: {
-										cssProperties: Array.from(rule.style).map((name) => ({
-											name: name,
-											value: rule.style.getPropertyValue(name),
-											important:
-												rule.style.getPropertyPriority(name) === "important",
-										})),
-										shorthandEntries: [],
-										cssText: rule.cssText,
-									},
+									style: serializeStyle(rule.style, id),
 									styleSheetId: id,
 									origin: "regular", // dont care enough yet
 								},
@@ -129,7 +198,7 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 	console.log("Matched CSS rules for node", nodeId, matchedCSSRules);
 	if (node instanceof HTMLElement) {
 		return {
-			inlineStyle: serializeInlineStyle(node),
+			inlineStyle: serializeStyle(node.style, `inline-${nodeId}`),
 			matchedCSSRules: matchedCSSRules,
 			attributesStyle: null,
 			pseudoElements: [],
@@ -146,4 +215,118 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 			cssKeyframesRules: [],
 		};
 	}
+});
+
+function applyStyleEdit(
+	css: string,
+	range: Protocol.CSS.SourceRange,
+	text: string
+): string {
+	const lines = css?.split("\n") ?? [];
+	lines.splice(
+		range.startLine,
+		Math.max(0, range.endLine - range.startLine + 1),
+		...text.split("\n")
+	);
+	return lines.filter((line) => line.trim()).join("\n");
+}
+
+// editing
+bindCDP("CSS.setStyleTexts", async function (params) {
+	const { edits } = params;
+	const results: Protocol.CSS.SetStyleTextsResponse = { styles: [] };
+
+	for (const edit of edits) {
+		const { styleSheetId, range, text } = edit;
+
+		if (styleSheetId.startsWith("inline-")) {
+			const nodeId = parseInt(styleSheetId.split("-")[1], 10);
+			const node = this.nodes.resolveElement(nodeId);
+
+			if (node instanceof HTMLElement) {
+				node.style.cssText = text;
+
+				const updatedStyle = parseStyleDeclarations(text, 0, 0);
+				updatedStyle.styleSheetId = styleSheetId;
+				results.styles.push(updatedStyle);
+			}
+		} else {
+			const sheet = this.styles.get(styleSheetId);
+			if (sheet) {
+				const rule = sheet.cssRules[range.startLine] || sheet.cssRules[0];
+
+				if (rule instanceof CSSStyleRule) {
+					rule.style.cssText = text;
+
+					if (sheet.ownerNode instanceof HTMLStyleElement) {
+						this.styles.setText(
+							styleSheetId,
+							sheet.ownerNode.textContent || ""
+						);
+					}
+
+					const updatedStyle = parseStyleDeclarations(
+						text,
+						range.startLine,
+						range.startColumn
+					);
+					updatedStyle.styleSheetId = styleSheetId;
+					results.styles.push(updatedStyle);
+				}
+			}
+		}
+	}
+	return results;
+});
+
+bindCDP("CSS.addRule", async function (params) {
+	const { styleSheetId, ruleText } = params;
+	const sheet = this.styles.get(styleSheetId);
+
+	if (!sheet) {
+		throw new Error("StyleSheet not found");
+	}
+
+	const index = sheet.insertRule(ruleText, sheet.cssRules.length);
+	const newRule = sheet.cssRules[index] as CSSStyleRule;
+
+	const selectors = newRule.selectorText.split(",").map((s) => s.trim());
+
+	return {
+		rule: {
+			styleSheetId,
+			selectorList: {
+				selectors: selectors.map((s) => ({ text: s })),
+				text: newRule.selectorText,
+			},
+			style: serializeStyle(newRule.style, styleSheetId),
+			origin: "regular",
+		},
+	};
+});
+
+bindCDP("CSS.getStyleSheetText", async function (params) {
+	const { styleSheetId } = params;
+	const sheet = this.styles.get(styleSheetId);
+
+	if (!sheet) {
+		throw new Error("StyleSheet not found");
+	}
+
+	// Reconstruct raw CSS text from rules
+	const text = Array.from(sheet.cssRules)
+		.map((r) => r.cssText)
+		.join("\n");
+
+	return { text };
+});
+
+bindCDP("CSS.createStyleSheet", async function (params) {
+	const el = document.createElement("style");
+	document.head.appendChild(el);
+
+	const sheet = el.sheet as CSSStyleSheet;
+	const id = this.styles.register(sheet);
+
+	return { id };
 });
