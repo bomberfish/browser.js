@@ -170,6 +170,18 @@ export class CDPConnection {
 							result: result.result,
 						})
 					);
+				})
+				.catch((error) => {
+					this.cb(
+						JSON.stringify({
+							id,
+							error: {
+								code: -1,
+								message: error.message,
+								data: error.stack,
+							},
+						})
+					);
 				});
 			return;
 		}
