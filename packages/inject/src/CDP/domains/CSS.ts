@@ -1,6 +1,6 @@
 import Protocol from "devtools-protocol";
 import { bindCDP, CDPSession } from "..";
-import { StyleManager } from "./stylemanager";
+import { StyleManager } from "../stylemanager";
 
 function serializeStyle(
 	style: CSSStyleDeclaration,
@@ -150,10 +150,12 @@ bindCDP("CSS.getInlineStylesForNode", async function (params) {
 	}
 });
 
-bindCDP("CSS.getMatchedStylesForNode", async function (params) {
-	const { nodeId } = params;
-	const node = this.nodes.resolveElement(nodeId);
-	const matchedCSSRules: Protocol.CSS.RuleMatch[] = [];
+function getMatchingRulesForNode(
+	session: CDPSession,
+	node: Element
+): Protocol.CSS.RuleMatch[] {
+	const matches: Protocol.CSS.RuleMatch[] = [];
+
 	for (const styleSheet of document.styleSheets) {
 		if (styleSheet instanceof CSSStyleSheet) {
 			try {
@@ -165,15 +167,15 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 								.split(",")
 								.map((s) => s.trim());
 							let id;
-							if (this.styles.has(rule.parentStyleSheet || styleSheet)) {
-								id = this.styles.getOrCreateId(
+							if (session.styles.has(rule.parentStyleSheet || styleSheet)) {
+								id = session.styles.getOrCreateId(
 									rule.parentStyleSheet || styleSheet
 								);
 							} else {
 								// register the stylesheet if we haven't seen it before
-								id = this.styles.register(styleSheet);
+								id = session.styles.register(styleSheet);
 							}
-							matchedCSSRules.push({
+							matches.push({
 								rule: {
 									selectorList: {
 										selectors: selectors.map((s) => ({
@@ -195,17 +197,15 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 			}
 		}
 	}
-	console.log("Matched CSS rules for node", nodeId, matchedCSSRules);
-	if (node instanceof HTMLElement) {
-		return {
-			inlineStyle: serializeStyle(node.style, `inline-${nodeId}`),
-			matchedCSSRules: matchedCSSRules,
-			attributesStyle: null,
-			pseudoElements: [],
-			inherited: [],
-			cssKeyframesRules: [],
-		};
-	} else {
+
+	return matches;
+}
+
+bindCDP("CSS.getMatchedStylesForNode", async function (params) {
+	const { nodeId } = params;
+	const node = this.nodes.resolveElement(nodeId);
+
+	if (!node || !(node instanceof Element)) {
 		return {
 			inlineStyle: null,
 			matchedCSSRules: [],
@@ -215,6 +215,38 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 			cssKeyframesRules: [],
 		};
 	}
+
+	const matchedCSSRules = getMatchingRulesForNode(this, node);
+	const inlineStyle =
+		node instanceof HTMLElement
+			? serializeStyle(node.style, `inline-${nodeId}`)
+			: undefined;
+
+	const inheritedStyles: Protocol.CSS.InheritedStyleEntry[] = [];
+	let parent = node.parentElement;
+	while (parent) {
+		const parentMatchedRules = getMatchingRulesForNode(this, parent);
+		const parentNodeId = this.nodes.getOrCreateId(parent);
+		const parentInlineStyle =
+			parent instanceof HTMLElement
+				? serializeStyle(parent.style, `inline-${parentNodeId}`)
+				: undefined;
+		inheritedStyles.push({
+			inlineStyle: parentInlineStyle,
+			matchedCSSRules: parentMatchedRules,
+		});
+
+		parent = parent.parentElement;
+	}
+
+	return {
+		inlineStyle: inlineStyle,
+		matchedCSSRules: matchedCSSRules,
+		attributesStyle: null,
+		pseudoElements: [],
+		inherited: inheritedStyles,
+		cssKeyframesRules: [],
+	};
 });
 
 function applyStyleEdit(
