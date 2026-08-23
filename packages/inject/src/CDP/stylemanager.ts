@@ -165,53 +165,72 @@ export class StyleManager {
 		baseLineOffset = 0,
 		baseColOffset = 0
 	): Protocol.CSS.CSSStyle {
-		const declarations = blockText
-			.split(";")
-			.map((s) => s.trim())
-			.filter(Boolean)
-			.map((s) => s + ";");
+		const matches = [
+			...blockText.matchAll(/(\/\*[\s\S]*?\*\/|[\w---]+\s*:[^;]+;?)/g),
+		];
+		const props: Protocol.CSS.CSSProperty[] = [];
 
-		const cssProperties: Protocol.CSS.CSSProperty[] = [];
+		matches.forEach((match, i) => {
+			const rawDecl = match[0].trim();
+			if (!rawDecl) return;
 
-		declarations.forEach((lineText, idx) => {
-			const colonIdx = lineText.indexOf(":");
-			if (colonIdx === -1) return;
+			const currentLine = baseLineOffset + i;
+			const startCol = i === 0 ? baseColOffset : 0;
 
-			const currentLine = baseLineOffset + idx;
-			const startCol = idx === 0 ? baseColOffset : 0;
+			let name;
+			let value;
+			let disabled = false;
+			let text = rawDecl;
 
-			const name = lineText.slice(0, colonIdx).trim();
-			let value = lineText
-				.slice(colonIdx + 1)
-				.replace(/;$/, "")
-				.trim();
+			const commentMatch = rawDecl.match(
+				/^\/\*\s*([\w---]+)\s*:\s*([\s\S]*?);?\s*\*\/$/
+			);
+
+			if (commentMatch) {
+				disabled = true;
+				name = commentMatch[1].trim();
+				value = commentMatch[2].trim();
+				text = `/* ${name}: ${value}; */`;
+			} else {
+				const colonIdx = rawDecl.indexOf(":");
+				if (colonIdx === -1) return;
+				name = rawDecl.slice(0, colonIdx).trim();
+				value = rawDecl
+					.slice(colonIdx + 1)
+					.replace(/;$/, "")
+					.trim();
+				if (!text.endsWith(";")) {
+					text += ";";
+				}
+			}
 
 			const important = value.includes("!important");
 			if (important) {
 				value = value.replace(/!important$/, "").trim();
 			}
 
-			cssProperties.push({
+			props.push({
 				name,
 				value,
 				important,
-				text: lineText,
+				disabled: disabled || undefined,
+				text,
 				range: {
 					startLine: currentLine,
 					startColumn: startCol,
 					endLine: currentLine,
-					endColumn: startCol + lineText.length,
+					endColumn: startCol + text.length,
 				},
 			});
 		});
 
-		const formattedCssText = cssProperties.map((p) => p.text).join("\n");
-		const lastLineIdx = Math.max(0, cssProperties.length - 1);
-		const lastLineLen = cssProperties[lastLineIdx]?.text?.length || 0;
+		const formattedCssText = props.map((p) => p.text).join("\n");
+		const lastLineIdx = Math.max(0, props.length - 1);
+		const lastLineLen = props[lastLineIdx]?.text?.length || 0;
 
 		return {
 			cssText: formattedCssText,
-			cssProperties,
+			cssProperties: props,
 			shorthandEntries: [],
 			range: {
 				startLine: baseLineOffset,
