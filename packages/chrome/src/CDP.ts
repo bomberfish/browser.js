@@ -4,6 +4,8 @@ import type { Tab } from "./Tab/Tab";
 import { contexts, ProxyFrameContext } from "./proxy/scramjet";
 import type { TabSession } from "./Tab/TabSession";
 import { uuid } from "./util";
+import { getTheme } from "./themes";
+import type { ThemeId } from "./themes";
 
 export type CdpCommand = keyof ProtocolMapping.Commands;
 export type CdpCommandArgs<T extends CdpCommand> =
@@ -199,4 +201,44 @@ export class CDPConnection {
 			console.error("ignoring-", method);
 		}
 	}
+}
+
+export function themeDevtools(frame: HTMLIFrameElement, themeId: ThemeId) {
+	const theme = getTheme(themeId);
+	const dark = theme.appearance === "dark";
+
+	const ui = JSON.stringify(dark ? "dark" : "default");
+	const flipped = localStorage["ui-theme"] !== ui;
+	localStorage["ui-theme"] = ui;
+
+	const root = frame.contentDocument?.documentElement;
+	if (!root) return;
+	if (flipped) return frame.contentWindow!.location.reload();
+
+	for (const [token, slots] of Object.entries({
+		frame: ["neutral10", "neutral100"],
+		toolbar: ["neutral15", "neutral100"],
+		toolbar_field: ["neutral20", "neutral40"],
+		popup: ["neutral25", "neutral100"],
+		popup_border: ["neutral40", "neutral90"],
+		toolbar_top_separator: ["neutral-variant60", "neutral-variant50"],
+		toolbar_text: ["neutral90", "neutral10"],
+		toolbar_field_text: ["neutral90", "neutral10"],
+		popup_text: ["neutral90", "neutral10"],
+		tab_background_text: ["neutral80", "neutral30"],
+		ntp_text: ["neutral80", "neutral30"],
+		icons: ["neutral80", "neutral30"],
+		tab_line: ["primary80", "primary40"],
+		tab_loading: ["secondary80", "secondary40"],
+	})) {
+		const color = theme.tokens[token as keyof typeof theme.tokens];
+		const slot = dark ? slots[0] : slots[1];
+		if (color) root.style.setProperty(`--color-ref-${slot}`, color);
+	}
+
+	(
+		frame.contentWindow as any
+	)?.InspectorFrontendHost?.events?.dispatchEventToListeners(
+		"colorThemeChanged"
+	);
 }

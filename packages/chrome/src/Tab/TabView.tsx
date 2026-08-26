@@ -3,6 +3,8 @@ import type { Tab } from "./Tab";
 import { requestUnfocusFrames } from "@components/Shell";
 import { tabsService } from "..";
 import type { TabSession } from "./TabSession";
+import { settingsService } from "..";
+import { themeDevtools } from "../CDP";
 
 export function TabView(this: FC<{ tab: Tab; ts: TabSession }>) {
 	const [lock, unlock] = requestUnfocusFrames();
@@ -13,6 +15,10 @@ export function TabView(this: FC<{ tab: Tab; ts: TabSession }>) {
 
 	this.ts.frame.classList.add(this.cx.id!);
 	this.ts.devtoolsFrame.classList.add(this.cx.id!);
+
+	use(settingsService.settings.themeId).listen((themeId) =>
+		themeDevtools(this.ts.devtoolsFrame, themeId)
+	);
 
 	return (
 		<div

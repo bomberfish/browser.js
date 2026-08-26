@@ -1,8 +1,9 @@
 import { rewriteUrl } from "@mercuryworkshop/scramjet/bundled";
 import { Controller, controllerForURL } from "../proxy/Controller";
-import { CDPConnection } from "../CDP";
+import { CDPConnection, themeDevtools } from "../CDP";
 import { contexts, ProxyFrameContext } from "../proxy/scramjet";
 import type { Tab } from "./Tab";
+import { settingsService } from "..";
 
 export class TabSession {
 	frame: HTMLIFrameElement;
@@ -19,7 +20,8 @@ export class TabSession {
 		this.frame = document.createElement("iframe");
 		this.devtoolsFrame = document.createElement("iframe");
 		tab.waitForInit.then(() => {
-			this.devtoolsFrame.onload = async () => {
+			themeDevtools(this.devtoolsFrame, settingsService.settings.themeId);
+			this.devtoolsFrame.addEventListener("load", () => {
 				this.cdpConnection = new CDPConnection((msh) => {
 					this.devtoolsFrame.contentWindow.InspectorFrontendAPI.dispatchMessage(
 						msh
@@ -30,7 +32,9 @@ export class TabSession {
 						console.warn(message);
 						this.cdpConnection!.sendMessage(message);
 					};
-			};
+
+				themeDevtools(this.devtoolsFrame, settingsService.settings.themeId);
+			});
 
 			this.devtoolsFrame.src = "front_end/inspector.html";
 		});
