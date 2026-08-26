@@ -8,6 +8,12 @@ bindCDP("CSS.enable", async function () {
 			this.styles.register(styleSheet);
 		}
 	}
+	window.addEventListener("resize", () => {
+		if (this.cssEnabled) {
+			this.emit("CSS.mediaQueryResultChanged", undefined);
+		}
+	});
+
 	this.cssEnabled = true;
 });
 

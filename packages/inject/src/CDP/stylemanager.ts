@@ -161,17 +161,19 @@ export class StyleManager {
 						text: rule.conditionText || rule.media.mediaText,
 						source: "mediaRule",
 					};
-					// recurse into the media rule
-					walk(
-						rule.cssRules,
-						sheet,
-						[...media, mediaObj],
-						containerQueries,
-						supports,
-						layers,
-						scopes,
-						["MediaRule", ...ruleTypes]
-					);
+					// only recurse into the media rule if it matches the current viewport
+					if (window.matchMedia(rule.media.mediaText).matches) {
+						walk(
+							rule.cssRules,
+							sheet,
+							[...media, mediaObj],
+							containerQueries,
+							supports,
+							layers,
+							scopes,
+							["MediaRule", ...ruleTypes]
+						);
+					}
 				} else if (rule instanceof CSSContainerRule) {
 					const containerObj: Protocol.CSS.CSSContainerQuery = {
 						text: rule.conditionText || "",
@@ -220,6 +222,7 @@ export class StyleManager {
 					);
 				} else if (rule instanceof CSSGroupingRule) {
 					// more evil rule types
+					// TODO: Implement scopes
 					walk(
 						rule.cssRules,
 						sheet,
