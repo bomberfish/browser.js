@@ -98,40 +98,146 @@ export class StyleManager {
 	public getMatchingRulesForNode(node: Element): Protocol.CSS.RuleMatch[] {
 		const matches: Protocol.CSS.RuleMatch[] = [];
 
+		const walk = (
+			rules: CSSRuleList,
+			sheet: CSSStyleSheet,
+			media: Protocol.CSS.CSSMedia[],
+			containerQueries: Protocol.CSS.CSSContainerQuery[] = [],
+			supports: Protocol.CSS.CSSSupports[] = [],
+			layers: Protocol.CSS.CSSLayer[] = [],
+			scopes: Protocol.CSS.CSSScope[] = [],
+			ruleTypes: Protocol.CSS.CSSRuleType[] = []
+		) => {
+			for (const rule of rules) {
+				if (rule instanceof CSSStyleRule) {
+					if (node instanceof Element && node.matches(rule.selectorText)) {
+						console.log("Matched css rule:", rule.cssText);
+						const selectors = rule.selectorText.split(",").map((s) => s.trim());
+						let id;
+						if (this.has(rule.parentStyleSheet || sheet)) {
+							id = this.getOrCreateId(rule.parentStyleSheet || sheet);
+						} else {
+							// register the stylesheet if we haven't seen it before
+							id = this.register(sheet);
+						}
+						matches.push({
+							rule: {
+								selectorList: {
+									selectors: selectors.map((s) => ({
+										text: s,
+									})),
+									text: rule.selectorText,
+								},
+								style: this.serializeStyle(rule.style, id),
+								styleSheetId: id,
+								origin: "regular", // dont care enough yet
+								media: media.length > 0 ? media : undefined,
+								containerQueries:
+									containerQueries.length > 0 ? containerQueries : undefined,
+								supports: supports.length > 0 ? supports : undefined,
+								layers: layers.length > 0 ? layers : undefined,
+								scopes: scopes.length > 0 ? scopes : undefined,
+								ruleTypes: ruleTypes.length > 0 ? ruleTypes : undefined,
+							},
+							matchingSelectors: selectors.map((_, i) => i),
+						});
+					}
+
+					if (rule.cssRules && rule.cssRules.length > 0) {
+						// recurse into nested rules
+						walk(
+							rule.cssRules,
+							sheet,
+							media,
+							containerQueries,
+							supports,
+							layers,
+							scopes,
+							["StyleRule", ...ruleTypes]
+						);
+					}
+				} else if (rule instanceof CSSMediaRule) {
+					const mediaObj: Protocol.CSS.CSSMedia = {
+						text: rule.conditionText || rule.media.mediaText,
+						source: "mediaRule",
+					};
+					// recurse into the media rule
+					walk(
+						rule.cssRules,
+						sheet,
+						[...media, mediaObj],
+						containerQueries,
+						supports,
+						layers,
+						scopes,
+						["MediaRule", ...ruleTypes]
+					);
+				} else if (rule instanceof CSSContainerRule) {
+					const containerObj: Protocol.CSS.CSSContainerQuery = {
+						text: rule.conditionText || "",
+					};
+					// ditto
+					walk(
+						rule.cssRules,
+						sheet,
+						media,
+						[...containerQueries, containerObj],
+						supports,
+						layers,
+						scopes,
+						["ContainerRule", ...ruleTypes]
+					);
+				} else if (rule instanceof CSSSupportsRule) {
+					const supportsObj: Protocol.CSS.CSSSupports = {
+						text: rule.conditionText || "",
+						active: rule.conditionText
+							? CSS.supports(rule.conditionText)
+							: true,
+					};
+					walk(
+						rule.cssRules,
+						sheet,
+						media,
+						containerQueries,
+						[...supports, supportsObj],
+						layers,
+						scopes,
+						["SupportsRule", ...ruleTypes]
+					);
+				} else if (rule instanceof CSSLayerBlockRule) {
+					const layerObj: Protocol.CSS.CSSLayer = {
+						text: rule.name,
+					};
+					walk(
+						rule.cssRules,
+						sheet,
+						media,
+						containerQueries,
+						supports,
+						[...layers, layerObj],
+						scopes,
+						["LayerRule", ...ruleTypes]
+					);
+				} else if (rule instanceof CSSGroupingRule) {
+					// more evil rule types
+					walk(
+						rule.cssRules,
+						sheet,
+						media,
+						containerQueries,
+						supports,
+						layers,
+						scopes,
+						["StyleRule", ...ruleTypes]
+					);
+				}
+			}
+		};
+
 		for (const styleSheet of document.styleSheets) {
 			if (styleSheet instanceof CSSStyleSheet) {
 				try {
-					for (const rule of styleSheet.cssRules) {
-						if (rule instanceof CSSStyleRule) {
-							if (node instanceof Element && node.matches(rule.selectorText)) {
-								console.log("Matched css rule:", rule.cssText);
-								const selectors = rule.selectorText
-									.split(",")
-									.map((s) => s.trim());
-								let id;
-								if (this.has(rule.parentStyleSheet || styleSheet)) {
-									id = this.getOrCreateId(rule.parentStyleSheet || styleSheet);
-								} else {
-									// register the stylesheet if we haven't seen it before
-									id = this.register(styleSheet);
-								}
-								matches.push({
-									rule: {
-										selectorList: {
-											selectors: selectors.map((s) => ({
-												text: s,
-											})),
-											text: rule.selectorText,
-										},
-										style: this.serializeStyle(rule.style, id),
-										styleSheetId: id,
-										origin: "regular", // dont care enough yet
-									},
-									matchingSelectors: selectors.map((_, i) => i),
-								});
-							}
-						}
-					}
+					walk(styleSheet.cssRules, styleSheet, []);
 				} catch (e) {
 					console.warn("css: Could not access stylesheet rules:", e);
 				}
