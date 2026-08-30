@@ -72,6 +72,7 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 			? this.styles.serializeStyle(node.style, `inline-${nodeId}`)
 			: undefined;
 
+	// collect inherited styles
 	const inheritedStyles: Protocol.CSS.InheritedStyleEntry[] = [];
 	let parent = node.parentElement;
 	while (parent) {
@@ -89,13 +90,45 @@ bindCDP("CSS.getMatchedStylesForNode", async function (params) {
 		parent = parent.parentElement;
 	}
 
+	// collect animation keyframes
+	const applicableAnimations = getComputedStyle(node)
+		.animationName.split(",")
+		.map((name) => name.trim());
+	const cssKeyframesRules: Protocol.CSS.CSSKeyframesRule[] = [];
+	for (const rule of document.styleSheets) {
+		if (rule instanceof CSSStyleSheet) {
+			for (const cssRule of rule.cssRules) {
+				if (cssRule instanceof CSSKeyframesRule) {
+					if (!applicableAnimations.includes(cssRule.name)) {
+						continue; // skip keyframes that are not applicable to this node
+					}
+					const id = this.styles.getOrCreateId(rule);
+					const keyframes: Protocol.CSS.CSSKeyframeRule[] = Array.from(
+						cssRule.cssRules
+					)
+						.filter((r) => r instanceof CSSKeyframeRule)
+						.map((r) => ({
+							styleSheetId: id,
+							keyText: { text: (r as CSSKeyframeRule).keyText },
+							style: this.styles.serializeStyle(r.style, id),
+							origin: "regular",
+						}));
+					cssKeyframesRules.push({
+						animationName: { text: cssRule.name },
+						keyframes: keyframes,
+					});
+				}
+			}
+		}
+	}
+
 	return {
 		inlineStyle: inlineStyle,
 		matchedCSSRules: matchedCSSRules,
 		attributesStyle: null,
 		pseudoElements: [],
 		inherited: inheritedStyles,
-		cssKeyframesRules: [],
+		cssKeyframesRules: cssKeyframesRules,
 	};
 });
 
@@ -212,3 +245,23 @@ bindCDP("CSS.createStyleSheet", async function (params) {
 
 	return { id };
 });
+
+// bindCDP("CSS.collectClassNames", async function (params) {
+// 	const sheet = this.styles.get(params.styleSheetId);
+// 	const classNames = new Set<string>();
+
+// 	if (sheet) {
+// 		for (const rule of sheet.cssRules) {
+// 			if (rule instanceof CSSStyleRule) {
+// 				const matches = rule.selectorText.matchAll(/\.([\w-]+)/g);
+// 				for (const match of matches) {
+// 					if (match[1]) {
+// 						classNames.add(match[1]);
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
+
+// 	return { classNames: Array.from(classNames) };
+// });
